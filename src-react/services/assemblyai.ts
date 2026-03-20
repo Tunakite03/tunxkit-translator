@@ -238,10 +238,11 @@ export class AssemblyAIClient {
             if (!text) break;
 
             if (data.turn_is_formatted) {
-               // Final formatted turn — use for translation
+               // Final formatted turn — accumulate for translation
                this._utteranceBuffer.push(text);
-               this.onOriginal?.(text, null);
-               this.onProvisional?.('', null);
+               // Show accumulated chunks as provisional until flushed
+               // (onOriginal is called once per flush to keep 1:1 with translation)
+               this.onProvisional?.(this._utteranceBuffer.join(' '), null);
                this._startUtteranceDebounce();
             } else {
                // Partial/streaming turn — use for provisional display
@@ -320,6 +321,10 @@ export class AssemblyAIClient {
 
       const fullText = this._utteranceBuffer.join(' ');
       this._utteranceBuffer.length = 0;
+
+      // Emit original once per flush → 1:1 mapping with translation
+      this.onOriginal?.(fullText, null);
+      this.onProvisional?.('', null);
 
       if (this._config?.targetLanguage) {
          this._queueTranslation(fullText);

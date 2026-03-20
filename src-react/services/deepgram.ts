@@ -305,8 +305,9 @@ export class DeepgramClient {
          this._utteranceBuffer.push(transcript);
          if (speaker !== null) this._utteranceSpeakers.push(speaker);
 
-         this.onOriginal?.(transcript, speaker);
-         this.onProvisional?.('', null);
+         // Show accumulated chunks as provisional until flushed
+         // (onOriginal is called once per flush to keep 1:1 with translation)
+         this.onProvisional?.(this._utteranceBuffer.join(' '), speaker);
 
          if (data.speech_final) {
             this._flushUtteranceBuffer();
@@ -348,12 +349,28 @@ export class DeepgramClient {
       if (this._utteranceBuffer.length === 0) return;
 
       const fullText = this._utteranceBuffer.join(' ');
+      const speaker = this._getDominantBufferedSpeaker();
       this._utteranceBuffer.length = 0;
       this._utteranceSpeakers.length = 0;
+
+      // Emit original once per flush → 1:1 mapping with translation
+      this.onOriginal?.(fullText, speaker);
+      this.onProvisional?.('', null);
 
       if (this._config?.targetLanguage) {
          this._queueTranslation(fullText);
       }
+   }
+
+   private _getDominantBufferedSpeaker(): string | null {
+      if (this._utteranceSpeakers.length === 0) return null;
+      const counts: Record<string, number> = {};
+      for (const s of this._utteranceSpeakers) {
+         counts[s] = (counts[s] || 0) + 1;
+      }
+      const entries = Object.entries(counts);
+      entries.sort((a, b) => b[1] - a[1]);
+      return entries[0][0];
    }
 
    private _queueTranslation(text: string): void {
