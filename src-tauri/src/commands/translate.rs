@@ -86,7 +86,10 @@ pub async fn translate_text(
         .map_err(|e| format!("Translation request failed: {}", e))?;
 
     if !resp.status().is_success() {
-        return Err(format!("Translation API returned status: {}", resp.status()));
+        return Err(format!(
+            "Translation API returned status: {}",
+            resp.status()
+        ));
     }
 
     let body: MyMemoryResponse = resp
@@ -130,6 +133,7 @@ struct ChatMessageResponse {
 }
 
 /// Context-aware translation using LLM (OpenAI-compatible API)
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn translate_text_llm(
     text: String,
@@ -183,7 +187,10 @@ pub async fn translate_text_llm(
         }
         user_msg.push('\n');
     }
-    user_msg.push_str(&format!("Translate the following text into {}:\n{}", tgt_label, text));
+    user_msg.push_str(&format!(
+        "Translate the following text into {}:\n{}",
+        tgt_label, text
+    ));
 
     // Auto-detect correct base URL from API key prefix
     let effective_base_url = if api_key.starts_with("gsk_") && base_url.contains("api.openai.com") {
@@ -202,8 +209,14 @@ pub async fn translate_text_llm(
     let body = ChatRequest {
         model,
         messages: vec![
-            ChatMessage { role: "system".to_string(), content: system },
-            ChatMessage { role: "user".to_string(), content: user_msg },
+            ChatMessage {
+                role: "system".to_string(),
+                content: system,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: user_msg,
+            },
         ],
         temperature: 0.3,
         max_tokens: 1024,

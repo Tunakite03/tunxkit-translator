@@ -20,7 +20,8 @@ pub struct AudioForwarder {
 
 impl AudioForwarder {
     fn stop(&self) {
-        self.stop_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.stop_flag
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 }
 

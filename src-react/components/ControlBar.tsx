@@ -1,4 +1,5 @@
 import { useApp } from '../store/app-store';
+import { settingsManager } from '../services/settings';
 import { Button } from './ui/button';
 import { Separator } from './ui/separator';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
@@ -14,6 +15,7 @@ import {
    Trash2,
    Copy,
    FolderOpen,
+   Download,
    Minimize2,
    Maximize2,
    Pin,
@@ -146,6 +148,7 @@ export default function ControlBar() {
       clearTranscript,
       getPlainText,
       saveTranscript,
+      saveTranscriptAs,
       segments,
    } = useApp();
 
@@ -171,7 +174,9 @@ export default function ControlBar() {
 
    const handleOpenTranscripts = async () => {
       try {
-         await window.__TAURI__.core.invoke('open_transcript_dir');
+         const s = settingsManager.get();
+         const customPath = s.transcript_save_path || undefined;
+         await window.__TAURI__.core.invoke('open_transcript_dir', { customPath });
       } catch (err) {
          showToast('Failed to open folder: ' + err, 'error');
       }
@@ -258,6 +263,11 @@ export default function ControlBar() {
 
          {/* Toolbar Actions */}
          <div className='flex items-center gap-0.5'>
+            <ToolbarButton
+               icon={Download}
+               tooltip='Save transcript as...'
+               onClick={saveTranscriptAs}
+            />
             <ToolbarButton
                icon={Trash2}
                tooltip='Clear transcript'

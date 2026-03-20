@@ -30,6 +30,8 @@ export interface FormData {
    llm_api_key: string;
    llm_base_url: string;
    llm_model: string;
+   auto_save_transcript: boolean;
+   transcript_save_path: string;
 }
 
 export interface TranslationTerm {
@@ -66,6 +68,8 @@ export default function SettingsView() {
          llm_api_key: s.llm_api_key || '',
          llm_base_url: s.llm_base_url || 'https://api.openai.com/v1',
          llm_model: s.llm_model || 'gpt-4o-mini',
+         auto_save_transcript: s.auto_save_transcript !== false,
+         transcript_save_path: s.transcript_save_path || '',
       });
       setTerms(s.custom_context?.translation_terms || []);
    }, []);
@@ -125,6 +129,8 @@ export default function SettingsView() {
          llm_api_key: form.llm_api_key,
          llm_base_url: form.llm_base_url,
          llm_model: form.llm_model,
+         auto_save_transcript: form.auto_save_transcript,
+         transcript_save_path: form.transcript_save_path,
       });
    };
 

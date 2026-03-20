@@ -78,6 +78,16 @@ pub struct Settings {
     pub llm_base_url: String,
     /// LLM model name
     pub llm_model: String,
+    /// Auto-save transcript on stop/clear/close
+    #[serde(default = "default_true")]
+    pub auto_save_transcript: bool,
+    /// Custom path for saving transcripts (empty = default app data dir)
+    #[serde(default)]
+    pub transcript_save_path: String,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -110,6 +120,8 @@ impl Default for Settings {
             llm_api_key: String::new(),
             llm_base_url: "https://api.openai.com/v1".to_string(),
             llm_model: "gpt-4o-mini".to_string(),
+            auto_save_transcript: true,
+            transcript_save_path: String::new(),
         }
     }
 }
@@ -143,11 +155,12 @@ impl Settings {
 
         // Ensure parent directory exists
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| format!("Failed to create config dir: {}", e))?;
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create config dir: {}", e))?;
         }
 
-        let json =
-            serde_json::to_string_pretty(self).map_err(|e| format!("Failed to serialize: {}", e))?;
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| format!("Failed to serialize: {}", e))?;
 
         fs::write(&path, json).map_err(|e| format!("Failed to write settings: {}", e))?;
 

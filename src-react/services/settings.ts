@@ -28,6 +28,8 @@ export interface AppSettings {
    llm_api_key: string;
    llm_base_url: string;
    llm_model: string;
+   auto_save_transcript: boolean;
+   transcript_save_path: string;
 }
 
 export interface CustomContext {
@@ -64,6 +66,8 @@ const DEFAULT_SETTINGS: AppSettings = {
    llm_api_key: '',
    llm_base_url: 'https://api.openai.com/v1',
    llm_model: 'gpt-4o-mini',
+   auto_save_transcript: true,
+   transcript_save_path: '',
 };
 
 type SettingsListener = (settings: AppSettings) => void;

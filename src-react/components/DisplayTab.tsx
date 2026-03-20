@@ -1,9 +1,12 @@
 import { Label } from './ui/label';
 import { Slider } from './ui/slider';
 import { Checkbox } from './ui/checkbox';
+import { Input } from './ui/input';
+import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
-import { Sun, Moon } from 'lucide-react';
+import { Sun, Moon, FolderOpen } from 'lucide-react';
 import { useTheme } from '../hooks/use-theme';
+import { open } from '@tauri-apps/plugin-dialog';
 import type { FormData } from './SettingsView';
 
 interface Props {
@@ -77,6 +80,53 @@ export default function DisplayTab({ form, update }: Props) {
                   Show original text
                </Label>
             </div>
+         </SettingsSection>
+
+         {/* Transcript Auto-save */}
+         <SettingsSection>
+            <Label className='text-xs text-muted-foreground'>Transcript</Label>
+            <div className='flex items-center gap-2'>
+               <Checkbox
+                  id='auto-save-transcript'
+                  checked={form.auto_save_transcript}
+                  onCheckedChange={(v) => update('auto_save_transcript', v as boolean)}
+               />
+               <Label
+                  htmlFor='auto-save-transcript'
+                  className='text-sm text-secondary-foreground cursor-pointer'
+               >
+                  Auto-save on stop / clear / close
+               </Label>
+            </div>
+            {form.auto_save_transcript && (
+               <div className='space-y-1.5 mt-2'>
+                  <Label className='text-xs text-muted-foreground'>Save path</Label>
+                  <div className='flex gap-1.5'>
+                     <Input
+                        value={form.transcript_save_path}
+                        onChange={(e) => update('transcript_save_path', e.target.value)}
+                        placeholder='Default (app data folder)'
+                        className='text-xs h-8 flex-1'
+                     />
+                     <Button
+                        variant='outline'
+                        size='icon-sm'
+                        className='h-8 w-8 shrink-0'
+                        onClick={async () => {
+                           const selected = await open({
+                              directory: true,
+                              title: 'Choose transcript save folder',
+                              defaultPath: form.transcript_save_path || undefined,
+                           });
+                           if (selected) update('transcript_save_path', selected);
+                        }}
+                     >
+                        <FolderOpen className='h-3.5 w-3.5' />
+                     </Button>
+                  </div>
+                  <p className='text-[10px] text-muted-foreground/70'>Leave empty to use default app data folder</p>
+               </div>
+            )}
          </SettingsSection>
       </div>
    );

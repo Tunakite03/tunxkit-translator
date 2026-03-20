@@ -10,6 +10,8 @@ import { elevenLabsTTS } from '../services/elevenlabs-tts';
 import { edgeTTSRust } from '../services/edge-tts';
 import { audioPlayer } from '../services/audio-player';
 
+import { save } from '@tauri-apps/plugin-dialog';
+
 const { invoke } = window.__TAURI__.core;
 const { getCurrentWindow } = window.__TAURI__.window;
 
@@ -74,6 +76,7 @@ interface AppContextValue {
    clearTranscript: () => void;
    getPlainText: () => string;
    saveTranscript: () => Promise<void>;
+   saveTranscriptAs: () => Promise<void>;
    saveSettings: (newSettings: Partial<AppSettings>) => Promise<void>;
    speakText: (text: string, isOriginal?: boolean) => void;
    appWindow: TauriAppWindow;
@@ -359,8 +362,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
    // ─── Save transcript ──────────────────────────────────
    const saveTranscript = useCallback(async () => {
+      const s = settingsManager.get();
+      if (!s.auto_save_transcript) return;
+
       const segs = segmentsRef.current;
       if (segs.length === 0) return;
+      const duration = recordingStartRef.current
+         ? (() => {
+              const ms = Date.now() - recordingStartRef.current!;
+              const s = Math.floor(ms / 1000);
+              return `${Math.floor(s / 60)}m ${s % 60}s`;
+           })()
+         : 'unknown';
+      const content = getFormattedContent({
+         model:
+            translationModeRef.current === 'deepgram'
+               ? 'Deepgram Nova-3'
+               : translationModeRef.current === 'assemblyai'
+                 ? 'AssemblyAI'
+                 : 'Local MLX Whisper',
+         sourceLang: s.source_language || 'auto',
+         targetLang: s.target_language || 'vi',
+         duration,
+         audioSource: currentSource,
+      });
+      if (!content) return;
+      try {
+         const customPath = s.transcript_save_path || undefined;
+         const path = await invoke<string>('save_transcript', { content, customPath });
+         const filename = path.split(/[\/\\]/).pop();
+         showToast(`Auto-saved: ${filename}`, 'success');
+      } catch {
+         showToast('Failed to save transcript', 'error');
+      }
+   }, [currentSource, getFormattedContent, showToast]);
+
+   const saveTranscriptAs = useCallback(async () => {
+      const segs = segmentsRef.current;
+      if (segs.length === 0) {
+         showToast('Nothing to save', 'info');
+         return;
+      }
       const duration = recordingStartRef.current
          ? (() => {
               const ms = Date.now() - recordingStartRef.current!;
@@ -382,9 +424,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
          audioSource: currentSource,
       });
       if (!content) return;
+
+      const now = new Date();
+      const defaultName = `transcript_${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}.md`;
+
+      const filePath = await save({
+         title: 'Save Transcript',
+         defaultPath: defaultName,
+         filters: [
+            { name: 'Markdown', extensions: ['md'] },
+            { name: 'Text', extensions: ['txt'] },
+            { name: 'All Files', extensions: ['*'] },
+         ],
+      });
+
+      if (!filePath) return; // user cancelled
+
       try {
-         const path = await invoke<string>('save_transcript', { content });
-         const filename = path.split('/').pop();
+         const savedPath = await invoke<string>('save_transcript_as', { path: filePath, content });
+         const filename = savedPath.split(/[\/\\]/).pop();
          showToast(`Saved: ${filename}`, 'success');
       } catch {
          showToast('Failed to save transcript', 'error');
@@ -797,6 +855,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
          clearTranscript,
          getPlainText,
          saveTranscript,
+         saveTranscriptAs,
          saveSettings: handleSaveSettings,
          speakText,
          appWindow: appWindow.current,
@@ -830,6 +889,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
          clearTranscript,
          getPlainText,
          saveTranscript,
+         saveTranscriptAs,
          handleSaveSettings,
          speakText,
       ],

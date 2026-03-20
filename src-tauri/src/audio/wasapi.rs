@@ -1,6 +1,6 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::TARGET_SAMPLE_RATE;
 
@@ -37,11 +37,9 @@ impl SystemAudioCapture {
                 let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
 
                 // Get default audio render endpoint (speakers/headphones)
-                let enumerator: IMMDeviceEnumerator = CoCreateInstance(
-                    &MMDeviceEnumerator,
-                    None,
-                    CLSCTX_ALL,
-                ).expect("Failed to create device enumerator");
+                let enumerator: IMMDeviceEnumerator =
+                    CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
+                        .expect("Failed to create device enumerator");
 
                 let device = enumerator
                     .GetDefaultAudioEndpoint(eRender, eConsole)
@@ -118,10 +116,8 @@ impl SystemAudioCapture {
                                 bits_per_sample,
                             );
 
-                            if !pcm_data.is_empty() {
-                                if sender.send(pcm_data).is_err() {
-                                    break; // Receiver dropped
-                                }
+                            if !pcm_data.is_empty() && sender.send(pcm_data).is_err() {
+                                break; // Receiver dropped
                             }
                         }
                     }
