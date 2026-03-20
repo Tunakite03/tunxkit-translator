@@ -1,4 +1,4 @@
-# My Translator
+# Realtime Translator
 
 Desktop **real-time speech translator overlay** built with **Tauri 2 + React + TypeScript + Rust**.
 
