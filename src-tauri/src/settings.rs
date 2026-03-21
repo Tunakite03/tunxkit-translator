@@ -130,7 +130,7 @@ impl Default for Settings {
 /// ~/Library/Application Support/com.personal.translator/settings.json
 fn settings_path() -> PathBuf {
     let mut path = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    path.push("com.personal.translator");
+    path.push("com.tunxkit.translator");
     path.push("settings.json");
     path
 }
