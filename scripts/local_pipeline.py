@@ -13,13 +13,14 @@ Usage:
   python3 local_pipeline.py --asr-model whisper --source-lang ja --target-lang vi
 """
 
-import sys
-import os
 import json
-import time
-import wave
+import os
+import sys
 import tempfile
 import threading
+import time
+import wave
+
 import numpy as np
 
 # Suppress warnings
@@ -38,10 +39,45 @@ def emit(data):
 
 # Language display names for translation prompt
 LANG_NAMES = {
-    "vi": "Vietnamese", "en": "English", "ja": "Japanese",
-    "ko": "Korean", "zh": "Chinese", "fr": "French",
-    "de": "German", "es": "Spanish", "th": "Thai",
+    "auto": "the detected language",
+    "vi": "Vietnamese",
+    "en": "English",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "zh": "Chinese",
+    "fr": "French",
+    "de": "German",
+    "es": "Spanish",
+    "th": "Thai",
+    "id": "Indonesian",
 }
+
+LANG_CODES = {
+    "Vietnamese": "vi",
+    "English": "en",
+    "Japanese": "ja",
+    "Korean": "ko",
+    "Chinese": "zh",
+    "French": "fr",
+    "German": "de",
+    "Spanish": "es",
+    "Thai": "th",
+    "Indonesian": "id",
+}
+
+
+def resolve_lang_name(lang):
+    if not lang:
+        return LANG_NAMES["auto"]
+    return LANG_NAMES.get(lang, lang)
+
+
+def resolve_lang_code(lang):
+    if not lang or lang == "auto":
+        return None
+    if lang in LANG_NAMES:
+        return lang
+    return LANG_CODES.get(lang)
 
 
 class LocalPipeline:
@@ -56,7 +92,8 @@ class LocalPipeline:
         self.asr_model_type = asr_model  # "whisper" or "qwen"
         self.source_lang = source_lang
         self.target_lang = target_lang
-        self.target_lang_name = LANG_NAMES.get(target_lang, "Vietnamese")
+        self.source_lang_name = resolve_lang_name(source_lang)
+        self.target_lang_name = resolve_lang_name(target_lang)
         self.chunk_seconds = chunk_seconds
         self.stride_seconds = stride_seconds
         self.sample_rate = 16000
@@ -69,7 +106,9 @@ class LocalPipeline:
 
         # Chunk size in bytes
         self.chunk_bytes = self.chunk_seconds * self.sample_rate * self.bytes_per_sample
-        self.stride_bytes = self.stride_seconds * self.sample_rate * self.bytes_per_sample
+        self.stride_bytes = (
+            self.stride_seconds * self.sample_rate * self.bytes_per_sample
+        )
 
         # Previous transcription to detect new text
         self.prev_text = ""
@@ -95,22 +134,24 @@ class LocalPipeline:
             t = time.time()
             import mlx_whisper
             import numpy as np
+
             # Pre-load by running a tiny transcription (numpy array to bypass ffmpeg)
             dummy_audio = np.zeros(1600, dtype=np.float32)  # 0.1s silence
             mlx_whisper.transcribe(
                 dummy_audio,
                 path_or_hf_repo="mlx-community/whisper-large-v3-turbo",
-                language="ja",
+                language=self._whisper_lang_code() or "en",
             )
             self.asr_model = "mlx-community/whisper-large-v3-turbo"
-            log(f"Whisper loaded in {time.time()-t:.1f}s")
+            log(f"Whisper loaded in {time.time() - t:.1f}s")
         elif self.asr_model_type == "qwen":
             log("Loading Qwen3-ASR-0.6B...")
             emit({"type": "status", "message": "Loading Qwen3-ASR-0.6B..."})
             t = time.time()
             from mlx_audio.stt import load_model
+
             self.asr_model = load_model("Qwen/Qwen3-ASR-0.6B")
-            log(f"Qwen ASR loaded in {time.time()-t:.1f}s")
+            log(f"Qwen ASR loaded in {time.time() - t:.1f}s")
         else:
             raise ValueError(f"Unknown ASR model: {self.asr_model_type}")
 
@@ -119,8 +160,11 @@ class LocalPipeline:
         emit({"type": "status", "message": "Loading Gemma-3-4B translator..."})
         t = time.time()
         from mlx_lm import load
-        self.llm_model, self.llm_tokenizer = load("mlx-community/gemma-3-4b-it-qat-4bit")
-        log(f"LLM loaded in {time.time()-t:.1f}s")
+
+        self.llm_model, self.llm_tokenizer = load(
+            "mlx-community/gemma-3-4b-it-qat-4bit"
+        )
+        log(f"LLM loaded in {time.time() - t:.1f}s")
 
         # Warm up LLM
         log("Warming up LLM...")
@@ -145,10 +189,13 @@ class LocalPipeline:
         if self.asr_model_type == "whisper":
             import mlx_whisper
             import numpy as np
+
             # Load WAV as float32 numpy array (bypass ffmpeg)
             with wave.open(wav_path, "r") as wf:
                 raw = wf.readframes(wf.getnframes())
-                audio_np = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                audio_np = (
+                    np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                )
             result = mlx_whisper.transcribe(
                 audio_np,
                 path_or_hf_repo=self.asr_model,
@@ -161,6 +208,7 @@ class LocalPipeline:
         else:
             # Qwen3-ASR
             from mlx_audio.stt.generate import generate_transcription
+
             result = generate_transcription(
                 model=self.asr_model,
                 audio=wav_path,
@@ -171,15 +219,7 @@ class LocalPipeline:
 
     def _whisper_lang_code(self):
         """Map source_lang to Whisper language code."""
-        lang_map = {
-            "Japanese": "ja", "ja": "ja",
-            "English": "en", "en": "en",
-            "Chinese": "zh", "zh": "zh",
-            "Korean": "ko", "ko": "ko",
-            "Vietnamese": "vi", "vi": "vi",
-            "auto": None,
-        }
-        return lang_map.get(self.source_lang, "ja")
+        return resolve_lang_code(self.source_lang)
 
     def _translate(self, text):
         """Translate text using Gemma-3 LLM with rolling context."""
@@ -187,29 +227,26 @@ class LocalPipeline:
             return ""
         from mlx_lm import generate
 
-        # Build context: only JA originals (no translations to avoid copying)
+        # Build context from recent source utterances only (no translations to avoid copying).
         context_block = ""
         if self.context_history:
-            recent = self.context_history[-self.max_context:]
-            ctx_ja = " / ".join(orig for orig, _ in recent)
-            context_block = (
-                f"[Topic context: {ctx_ja}]\n\n"
-            )
+            recent = self.context_history[-self.max_context :]
+            ctx_source = " / ".join(orig for orig, _ in recent)
+            context_block = f"[Recent source context: {ctx_source}]\n\n"
 
         prompt = (
             "<start_of_turn>user\n"
-            f"Translate this ONE Japanese sentence to {self.target_lang_name}.\n"
-            f"Output ONLY the {self.target_lang_name} translation of the LAST line. Do NOT repeat previous content.\n"
-            "\n"
-            "Examples:\n"
-            "JA: こんにちは、マイです。→ Xin chào, tôi là Mai.\n"
-            "JA: おでんを作って食べました。→ Tôi đã làm oden ăn.\n"
-            "JA: えっ？コンビニにおでん？→ Hả? Oden ở cửa hàng tiện lợi á?\n"
-            "\n"
-            "Rules: Vietnamese only. Keep names (マイ=Mai). Keep food (おでん=oden). ONE sentence output only.\n"
+            f"You are translating live speech from {self.source_lang_name} to {self.target_lang_name}.\n"
+            f"Translate ONLY the last line into natural {self.target_lang_name}.\n"
+            "Rules:\n"
+            f"- Output only {self.target_lang_name} text.\n"
+            "- Keep names, numbers, and brand names accurate.\n"
+            "- Keep culture-specific words in the original form when a direct translation sounds unnatural.\n"
+            "- Return one natural sentence or short utterance only.\n"
+            "- Do not explain, label, or repeat previous context.\n"
             "\n"
             f"{context_block}"
-            f"Translate: {text}\n"
+            f"Text: {text}\n"
             "<end_of_turn>\n"
             "<start_of_turn>model\n"
         )
@@ -233,23 +270,47 @@ class LocalPipeline:
         if result:
             self.context_history.append((text, result))
             if len(self.context_history) > self.max_context * 2:
-                self.context_history = self.context_history[-self.max_context:]
+                self.context_history = self.context_history[-self.max_context :]
 
         return result
 
     def _clean_translation(self, text):
         """Remove special tokens and truncate at hallucination."""
         import re
+
         # Remove Gemma special tokens
-        text = text.split('<end_of_turn>')[0]
-        text = re.sub(r'<[^>]+>', '', text)
+        text = text.split("<end_of_turn>")[0]
+        text = re.sub(r"<[^>]+>", "", text)
         # Take only the first meaningful line
-        lines = [l.strip() for l in text.split('\n') if l.strip()]
-        text = lines[0] if lines else ''
-        # Remove any prefix artifacts
-        text = re.sub(r'^(VI:\s*|→\s*|Translate:\s*)', '', text)
+        lines = [l.strip() for l in text.split("\n") if l.strip()]
+        text = lines[0] if lines else ""
+        # Remove common label/prefix artifacts from multilingual prompts.
+        prefix_labels = [
+            "VI",
+            "EN",
+            "JA",
+            "KO",
+            "ZH",
+            "FR",
+            "DE",
+            "ES",
+            "TH",
+            "ID",
+            "Translate",
+            "Translation",
+            "Translated text",
+            "Output",
+            *sorted(set(LANG_CODES.keys())),
+        ]
+        prefix_pattern = (
+            r"^(?:"
+            + "|".join(re.escape(label) for label in prefix_labels)
+            + r")\s*[:：]\s*"
+        )
+        text = re.sub(prefix_pattern, "", text, flags=re.IGNORECASE)
+        text = re.sub(r"^→\s*", "", text)
         # Clean up whitespace
-        text = re.sub(r'\s+', ' ', text).strip()
+        text = re.sub(r"\s+", " ", text).strip()
         return text
 
     def _remove_overlap(self, new_text, prev_text):
@@ -265,34 +326,34 @@ class LocalPipeline:
         max_overlap = min(len(words_new), len(words_prev))
         overlap_len = 0
         for i in range(3, max_overlap + 1):
-            suffix = ' '.join(words_prev[-i:])
-            prefix = ' '.join(words_new[:i])
+            suffix = " ".join(words_prev[-i:])
+            prefix = " ".join(words_new[:i])
             if suffix.lower() == prefix.lower():
                 overlap_len = i
         if overlap_len >= 3:
-            return ' '.join(words_new[overlap_len:]).strip()
+            return " ".join(words_new[overlap_len:]).strip()
         return new_text
 
     def _dedup_transcript(self, text):
         """Remove overlapping text from previous transcript chunk."""
         if not self.prev_text or not text:
             return text
-        
+
         prev = self.prev_text
-        # Find longest suffix of prev_text that matches a prefix of text
-        # Use character-level matching for Japanese (no spaces between words)
+        # Find longest suffix of prev_text that matches a prefix of text.
+        # Character-level matching works better for CJK transcripts without spaces.
         best_overlap = 0
         min_overlap = 3  # At least 3 chars to count as overlap
         max_check = min(len(prev), len(text), 100)  # Don't check too far
-        
+
         for length in range(min_overlap, max_check + 1):
             if prev[-length:] == text[:length]:
                 best_overlap = length
-        
+
         if best_overlap >= min_overlap:
             new_text = text[best_overlap:].strip()
             return new_text if new_text else text
-        
+
         return text
 
     def _process_chunk(self, pcm_bytes):
@@ -335,17 +396,25 @@ class LocalPipeline:
             log(f"ASR={t_asr:.2f}s LLM={t_llm:.2f}s total={total:.2f}s")
 
             # Emit combined result
-            emit({
-                "type": "result",
-                "original": new_text,
-                "translated": translated,
-                "language": lang if isinstance(lang, str) else (lang[0] if lang else "ja"),
-                "timing": {
-                    "asr": round(t_asr, 2),
-                    "translate": round(t_llm, 2),
-                    "total": round(total, 2),
-                },
-            })
+            emit(
+                {
+                    "type": "result",
+                    "original": new_text,
+                    "translated": translated,
+                    "language": lang
+                    if isinstance(lang, str)
+                    else (
+                        lang[0]
+                        if lang
+                        else (resolve_lang_code(self.source_lang) or "auto")
+                    ),
+                    "timing": {
+                        "asr": round(t_asr, 2),
+                        "translate": round(t_llm, 2),
+                        "total": round(total, 2),
+                    },
+                }
+            )
 
             self.prev_text = text  # Store FULL text for next dedup
 
@@ -383,7 +452,11 @@ class LocalPipeline:
             # When we have enough data for a chunk
             if buf_len - processed_pos >= self.chunk_bytes:
                 with self.lock:
-                    chunk = bytes(self.audio_buffer[processed_pos : processed_pos + self.chunk_bytes])
+                    chunk = bytes(
+                        self.audio_buffer[
+                            processed_pos : processed_pos + self.chunk_bytes
+                        ]
+                    )
 
                 self._process_chunk(chunk)
                 processed_pos += self.stride_bytes
@@ -391,7 +464,9 @@ class LocalPipeline:
         # Process remaining audio
         with self.lock:
             remaining = len(self.audio_buffer) - processed_pos
-            if remaining > self.sample_rate * self.bytes_per_sample:  # At least 1 second
+            if (
+                remaining > self.sample_rate * self.bytes_per_sample
+            ):  # At least 1 second
                 chunk = bytes(self.audio_buffer[processed_pos:])
                 self._process_chunk(chunk)
 
@@ -403,14 +478,28 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Local translation pipeline")
-    parser.add_argument("--asr-model", default="whisper", choices=["whisper", "qwen"],
-                        help="ASR model: 'whisper' (large-v3-turbo) or 'qwen' (Qwen3-ASR-0.6B)")
+    parser.add_argument(
+        "--asr-model",
+        default="whisper",
+        choices=["whisper", "qwen"],
+        help="ASR model: 'whisper' (large-v3-turbo) or 'qwen' (Qwen3-ASR-0.6B)",
+    )
     parser.add_argument("--source-lang", default="ja", help="Source language")
-    parser.add_argument("--target-lang", default="vi", help="Target language code (vi, en, etc.)")
-    parser.add_argument("--chunk-seconds", type=int, default=7, help="Audio chunk size in seconds")
-    parser.add_argument("--stride-seconds", type=int, default=5, help="Stride between chunks in seconds")
-    parser.add_argument("--test", action="store_true", help="Run test with sample audio file")
-    parser.add_argument("--test-file", default="/tmp/test_japanese.wav", help="Test audio file")
+    parser.add_argument(
+        "--target-lang", default="vi", help="Target language code (vi, en, etc.)"
+    )
+    parser.add_argument(
+        "--chunk-seconds", type=int, default=7, help="Audio chunk size in seconds"
+    )
+    parser.add_argument(
+        "--stride-seconds", type=int, default=5, help="Stride between chunks in seconds"
+    )
+    parser.add_argument(
+        "--test", action="store_true", help="Run test with sample audio file"
+    )
+    parser.add_argument(
+        "--test-file", default="/tmp/test_japanese.wav", help="Test audio file"
+    )
     args = parser.parse_args()
 
     if args.test:

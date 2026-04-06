@@ -1,6 +1,6 @@
-## vexp context tools <!-- vexp v1.2.30 -->
+## vexp <!-- vexp v1.2.30 -->
 
-**MANDATORY: use `run_pipeline` — do NOT grep, glob, or read files manually.**
+**MANDATORY: use `run_pipeline` — do NOT grep or glob the codebase.**
 vexp returns pre-indexed, graph-ranked context in a single call.
 
 ### Workflow

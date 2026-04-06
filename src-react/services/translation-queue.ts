@@ -13,24 +13,48 @@ export interface TranslationConfig {
    llmApiKey?: string;
    llmBaseUrl?: string;
    llmModel?: string;
+   /** Number of recent sentences to include as context (default: 10) */
+   contextSize?: number;
+   /** Formality level: 'auto' | 'formal' | 'casual' */
+   formality?: string;
+}
+
+/** Stores both original text and its translation for better context */
+interface ContextEntry {
+   original: string;
+   translated: string;
 }
 
 export class TranslationQueue {
    private _queue: string[] = [];
    private _translating = false;
-   private _recentTranslations: string[] = [];
-   private _maxContext: number;
+   /** Enhanced context: stores both original and translated text */
+   private _contextHistory: ContextEntry[] = [];
+   private _maxContextSize: number;
 
    onTranslation: ((text: string) => void) | null = null;
    onError: ((error: string) => void) | null = null;
 
-   constructor(maxContext = 6) {
-      this._maxContext = maxContext;
+   constructor(maxContextSize = 10) {
+      this._maxContextSize = maxContextSize;
+   }
+
+   /** Update max context size dynamically */
+   setMaxContextSize(size: number): void {
+      this._maxContextSize = Math.max(1, Math.min(size, 30));
+      // Trim history if needed
+      if (this._contextHistory.length > this._maxContextSize * 2) {
+         this._contextHistory = this._contextHistory.slice(-this._maxContextSize);
+      }
    }
 
    /** Enqueue text for translation. */
    enqueue(text: string, config: TranslationConfig): void {
       this._queue.push(text);
+      // Update context size from config if provided
+      if (config.contextSize && config.contextSize !== this._maxContextSize) {
+         this.setMaxContextSize(config.contextSize);
+      }
       this._processQueue(config);
    }
 
@@ -42,7 +66,13 @@ export class TranslationQueue {
 
    /** Reset context history (e.g. on session reset). */
    resetHistory(): void {
-      this._recentTranslations = [];
+      this._contextHistory = [];
+   }
+
+   /** Get recent context for external use */
+   getRecentContext(count?: number): ContextEntry[] {
+      const n = count ?? this._maxContextSize;
+      return this._contextHistory.slice(-n);
    }
 
    private async _processQueue(config: TranslationConfig): Promise<void> {
@@ -55,6 +85,7 @@ export class TranslationQueue {
             const sourceLang = config.sourceLanguage || 'auto';
             const targetLang = config.targetLanguage || 'vi';
             const engine = config.translationEngine || 'mymemory';
+            const contextSize = config.contextSize ?? this._maxContextSize;
 
             let translated: string;
 
@@ -64,16 +95,23 @@ export class TranslationQueue {
                   (ctx as { translation_terms?: { source: string; target: string }[] }).translation_terms || []
                ).map((t) => [t.source, t.target]);
 
+               // Build enhanced context with both original and translated text
+               const recentContext = this._contextHistory.slice(-contextSize);
+               const contextSentences = recentContext.map(entry => 
+                  `[${entry.original}] → [${entry.translated}]`
+               );
+
                translated = await invoke<string>('translate_text_llm', {
                   text,
                   sourceLang: sourceLang === 'auto' ? '' : sourceLang,
                   targetLang,
-                  contextSentences: this._recentTranslations.slice(-this._maxContext),
+                  contextSentences,
                   domain: (ctx as { domain?: string }).domain || '',
                   customTerms: terms,
                   apiKey: config.llmApiKey || '',
                   baseUrl: config.llmBaseUrl || 'https://api.openai.com/v1',
                   model: config.llmModel || 'gpt-4o-mini',
+                  formality: config.formality || 'auto',
                });
             } else {
                translated = await invoke<string>('translate_text', {
@@ -84,9 +122,15 @@ export class TranslationQueue {
             }
 
             if (translated?.trim()) {
-               this._recentTranslations.push(translated);
-               if (this._recentTranslations.length > this._maxContext * 2) {
-                  this._recentTranslations = this._recentTranslations.slice(-this._maxContext);
+               // Store both original and translated text for richer context
+               this._contextHistory.push({
+                  original: text.trim(),
+                  translated: translated.trim(),
+               });
+               
+               // Keep history bounded
+               if (this._contextHistory.length > this._maxContextSize * 2) {
+                  this._contextHistory = this._contextHistory.slice(-this._maxContextSize);
                }
                this.onTranslation?.(translated);
             }

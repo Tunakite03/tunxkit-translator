@@ -27,6 +27,15 @@ pub struct Settings {
     /// AssemblyAI API key
     #[serde(default)]
     pub assemblyai_api_key: String,
+    /// Deepgram speech-to-text model
+    #[serde(default)]
+    pub deepgram_model: String,
+    /// AssemblyAI speech-to-text model
+    #[serde(default)]
+    pub assemblyai_model: String,
+    /// Local ASR model for MLX pipeline
+    #[serde(default = "default_local_asr_model")]
+    pub local_asr_model: String,
     /// Legacy Soniox API key (for migration)
     #[serde(default)]
     pub soniox_api_key: String,
@@ -84,10 +93,28 @@ pub struct Settings {
     /// Custom path for saving transcripts (empty = default app data dir)
     #[serde(default)]
     pub transcript_save_path: String,
+    /// Context window size for LLM translation (number of recent sentences)
+    #[serde(default = "default_context_size")]
+    pub llm_context_size: u32,
+    /// Formality level for LLM translation: "auto" | "formal" | "casual"
+    #[serde(default = "default_formality")]
+    pub llm_formality: String,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_local_asr_model() -> String {
+    "whisper".to_string()
+}
+
+fn default_context_size() -> u32 {
+    10
+}
+
+fn default_formality() -> String {
+    "auto".to_string()
 }
 
 impl Default for Settings {
@@ -95,6 +122,9 @@ impl Default for Settings {
         Self {
             deepgram_api_key: String::new(),
             assemblyai_api_key: String::new(),
+            deepgram_model: String::new(),
+            assemblyai_model: String::new(),
+            local_asr_model: default_local_asr_model(),
             soniox_api_key: String::new(),
             source_language: "auto".to_string(),
             target_language: "vi".to_string(),
@@ -113,7 +143,7 @@ impl Default for Settings {
             tts_speed: 0.5,
             edge_tts_voice: "vi-VN-HoaiMyNeural".to_string(),
             edge_tts_speed: 0,
-            tts_auto_read: true,
+            tts_auto_read: false,
             google_tts_api_key: String::new(),
             google_tts_voice: "vi-VN-Chirp3-HD-Aoede".to_string(),
             google_tts_speed: 1.0,
@@ -122,6 +152,8 @@ impl Default for Settings {
             llm_model: "gpt-4o-mini".to_string(),
             auto_save_transcript: true,
             transcript_save_path: String::new(),
+            llm_context_size: default_context_size(),
+            llm_formality: default_formality(),
         }
     }
 }
@@ -136,17 +168,34 @@ fn settings_path() -> PathBuf {
 }
 
 impl Settings {
+    fn normalize(&mut self) -> bool {
+        let mut changed = false;
+
+        if !self.tts_enabled && self.tts_auto_read {
+            self.tts_auto_read = false;
+            changed = true;
+        }
+
+        changed
+    }
+
     /// Load settings from disk, or return defaults
     pub fn load() -> Self {
         let path = settings_path();
-        if path.exists() {
+        let mut settings = if path.exists() {
             match fs::read_to_string(&path) {
                 Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
                 Err(_) => Self::default(),
             }
         } else {
             Self::default()
+        };
+
+        if settings.normalize() {
+            let _ = settings.save();
         }
+
+        settings
     }
 
     /// Save settings to disk

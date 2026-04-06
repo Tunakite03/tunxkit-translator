@@ -65,6 +65,7 @@ pub fn run() {
             commands::translate::translate_text,
             commands::translate::translate_text_llm,
             commands::translate::get_assemblyai_token,
+            commands::translate::get_stt_models,
             get_platform_info,
         ])
         .run(tauri::generate_context!())
