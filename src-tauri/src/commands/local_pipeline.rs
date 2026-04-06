@@ -29,6 +29,7 @@ fn chrono_now() -> String {
 /// Start the local translation pipeline (Python sidecar)
 #[tauri::command]
 pub fn start_local_pipeline(
+    asr_model: Option<String>,
     source_lang: String,
     target_lang: String,
     channel: Channel<String>,
@@ -109,7 +110,7 @@ pub fn start_local_pipeline(
     let mut child = Command::new(&python)
         .arg(&script_path)
         .arg("--asr-model")
-        .arg("whisper")
+        .arg(asr_model.unwrap_or_else(|| "whisper".to_string()))
         .arg("--source-lang")
         .arg(&source_lang)
         .arg("--target-lang")
